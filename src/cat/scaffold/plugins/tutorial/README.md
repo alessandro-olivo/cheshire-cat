@@ -9,7 +9,8 @@ tutorial/
 │   ├── hello_agent.py          prompt-only agent             (Poet)
 │   ├── tool_agent.py           tools + a user-scoped db      (TodoAgent)
 │   ├── time_aware_agent.py     attaching a directive         (TimeAwareAgent)
-│   └── introspective_agent.py  a tool with a guardrail       (IntrospectiveAgent)
+│   ├── introspective_agent.py  a tool with a guardrail       (IntrospectiveAgent)
+│   └── mcp_agent.py            an MCP server as a directive   (MCPAgent)
 └── directives/    # middleware that hooks the agent loop
     └── clock.py                the `clock` directive
 ```

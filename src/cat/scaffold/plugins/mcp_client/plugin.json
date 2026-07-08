@@ -1,0 +1,12 @@
+{
+    "name": "MCP Client",
+    "version": "0.1.0",
+    "description": "Attach MCP servers to an agent as a directive. The Cat connects statelessly as an MCP client, adds the servers' tools (with UI metadata and visibility) to the agent, and injects a read_resource tool. Auth: none or apikey.",
+    "author_name": "Cheshire Cat AI",
+    "author_url": "https://cheshirecat.ai",
+    "plugin_url": "https://github.com/cheshire-cat-ai/core",
+    "tags": "mcp, tools, model context protocol, client, directive",
+    "thumb": "",
+    "min_cat_version": "2.0.0",
+    "max_cat_version": "Unknown"
+}
