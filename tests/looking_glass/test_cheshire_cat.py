@@ -1,5 +1,4 @@
 import pytest
-import pytest_asyncio
 
 from cat.ambient.runtime import ccat
 from cat.mad_hatter.mad_hatter import MadHatter
@@ -12,7 +11,7 @@ from cat.services.model_providers.openai_compatible import (
 # async_client bootstraps the cat in the test's own event loop (no blocking
 # TestClient portal inside an async test), so ccat() is the live instance.
 # The core suite is core-only: the cat boots with zero plugins.
-@pytest_asyncio.fixture(scope="function")
+@pytest.fixture(scope="function")
 async def cheshire_cat(async_client):
     yield ccat()
 

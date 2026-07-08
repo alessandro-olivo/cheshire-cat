@@ -39,7 +39,6 @@ import shutil
 from typing import Any, Generator
 
 import pytest
-import pytest_asyncio
 from asgi_lifespan import LifespanManager
 from httpx import ASGITransport, AsyncClient
 from fastapi import FastAPI
@@ -229,7 +228,7 @@ def anon_client(app) -> Generator[TestClient, Any, None]:
 ###############################
 # Async version of the client #
 ###############################
-@pytest_asyncio.fixture(scope="function")
+@pytest.fixture(scope="function")
 async def async_client(app):
     """Async client authenticated as admin by default (see `client`)."""
     async with LifespanManager(app):

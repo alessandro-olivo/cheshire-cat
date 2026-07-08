@@ -44,7 +44,8 @@ packages = ["src/cat"]
 package = true
 
 [tool.pytest.ini_options]
-asyncio_mode = "auto"
+# asyncio_mode is not set here: the `cat.testing` pytest plugin defaults it to
+# "auto", so async tests just work in core and in every plugin with no ceremony.
 asyncio_default_fixture_loop_scope = "function"
 # Collect the core suite and every plugin suite in one run.
 testpaths = ["tests", "plugins"]

@@ -10,7 +10,6 @@
 import os
 
 import pytest
-import pytest_asyncio
 
 from cat.ambient.runtime import ccat  # the one CheshireCat instance per process
 
@@ -40,7 +39,7 @@ def just_installed_plugin(client):
 
 # 2) via MadHatter directly — install_plugin is async in v2, so this is an
 #    async fixture bootstrapped through async_client.
-@pytest_asyncio.fixture(scope="function")
+@pytest.fixture(scope="function")
 async def mad_hatter_with_mock_plugin(async_client):
     mad_hatter = ccat().mad_hatter
 

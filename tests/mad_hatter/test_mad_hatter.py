@@ -1,6 +1,5 @@
 import os
 import pytest
-import pytest_asyncio
 
 from cat import config
 from cat.ambient.runtime import ccat
@@ -12,7 +11,7 @@ from tests.utils import create_mock_plugin_zip, get_mock_plugin_info
 # async_client bootstraps the cat in the test's own event loop (no blocking
 # TestClient portal inside an async test), so ccat() is live here. The core
 # suite is core-only, so the cat boots with zero plugins.
-@pytest_asyncio.fixture(scope="function")
+@pytest.fixture(scope="function")
 async def mad_hatter(async_client):
     yield ccat().mad_hatter
 
