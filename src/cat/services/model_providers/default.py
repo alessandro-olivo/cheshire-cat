@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 # Shown by the default LLM until a real provider is configured.
 NOT_CONFIGURED_MESSAGE = (
-    "No Language Model is configured yet. Choose one in the settings!"
+    "No model is configured yet. Go into the Settings, configure a Provider and then set the default LLM."
 )
 
 
