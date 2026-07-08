@@ -76,6 +76,16 @@ def pytest_configure(config):
         "is auto-included and these names are added on top.",
     )
 
+    # Async tests just work: a plugin author writes `async def test_...()` with no
+    # marker and no config. The Cat is async to the core, so its tests are too — we
+    # make `asyncio_mode = "auto"` the default here (unless the project explicitly
+    # sets its own mode) so nobody has to remember `@pytest.mark.asyncio` or add
+    # pytest config to a fresh install. `getoption` is honored first, so a
+    # deliberate `--asyncio-mode`/`-o asyncio_mode=...` still wins.
+    if config.getoption("asyncio_mode", None) is None and "asyncio_mode" not in config.inicfg:
+        config.inicfg["asyncio_mode"] = "auto"
+        config._inicache.pop("asyncio_mode", None)  # drop any cached "strict" read
+
     if os.path.isdir(SCAFFOLD_PLUGINS):
         os.makedirs(REPO_PLUGINS, exist_ok=True)
         for name in os.listdir(SCAFFOLD_PLUGINS):
