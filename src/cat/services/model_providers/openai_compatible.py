@@ -219,7 +219,11 @@ class OpenAICompatibleProvider(ModelProvider):
         return {"role": msg.role, "content": content}
 
     def build_tools(self, tools: list["Tool"]) -> list[dict]:
-        """Convert Cat tools to OpenAI tool format."""
+        """Convert Cat tools to OpenAI tool format.
+
+        App-only tools (`visibility = ["app"]`) are excluded — they are reserved
+        for the UI bridge and must never be offered to the LLM.
+        """
         return [
             {
                 "type": "function",
@@ -230,6 +234,7 @@ class OpenAICompatibleProvider(ModelProvider):
                 },
             }
             for tool in tools
+            if tool.meta.is_model_visible
         ]
 
     def parse_response(self, response) -> "Message":

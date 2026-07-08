@@ -11,7 +11,6 @@ from cat import log
 
 if TYPE_CHECKING:
     from cat.base import Directive
-    from cat.protocols.model_context.client import MCPClients
 
 
 class Agent(Service):
@@ -42,12 +41,6 @@ class Agent(Service):
 
     args: BaseModel | None = None
 
-    @property
-    def mcp_clients(self) -> "MCPClients":
-        """The process-wide MCP client pool (agents connect per-user MCP tools)."""
-        from cat.ambient.runtime import ccat
-        return ccat().mcp_clients
-
     async def __call__(self, task: Task) -> TaskResult:
         """
         Main entry point: run the agent like a function. Sets up run state,
@@ -56,26 +49,23 @@ class Agent(Service):
 
         self._validate_args(task)
 
-        async with self.mcp_clients.get_user_client(self) as mcp_client:
-            self.mcp = mcp_client
+        # Per-run state on a fresh instance.
+        self.task = task
+        self.result = TaskResult()
+        self.system_prompt = await self.get_system_prompt()
+        self.tools = await self.list_tools()
+        self.directives = await self._resolve_directives()
 
-            # Per-run state on a fresh instance.
-            self.task = task
-            self.result = TaskResult()
-            self.system_prompt = await self.get_system_prompt()
-            self.tools = await self.list_tools()
-            self.directives = await self._resolve_directives()
+        # data-only hook: mutate the Task in place or return a replacement.
+        # Per-agent scoping is a directive's job, not a {slug} hook variant.
+        self.task = await execute_hook("before_agent_run", self.task)
 
-            # data-only hook: mutate the Task in place or return a replacement.
-            # Per-agent scoping is a directive's job, not a {slug} hook variant.
-            self.task = await execute_hook("before_agent_run", self.task)
+        await self.start()
+        await self.loop()
+        await self.finish()
 
-            await self.start()
-            await self.loop()
-            await self.finish()
-
-            # data-only hook: mutate the TaskResult in place or return a replacement.
-            self.result = await execute_hook("after_agent_run", self.result)
+        # data-only hook: mutate the TaskResult in place or return a replacement.
+        self.result = await execute_hook("after_agent_run", self.result)
 
         return self.result
 
@@ -158,25 +148,17 @@ class Agent(Service):
     async def list_tools(self) -> List[Tool]:
         """
         The tools this agent can call: its own `@tool` methods (including any
-        inherited from base classes or mixins) plus connected MCP tools.
+        inherited from base classes or mixins).
 
         Tools are agent-scoped — an agent does NOT silently inherit every plugin's
         tools. To share tools across agents, put them on a mixin and inherit it;
         to add or filter tools cross-cuttingly, mutate `agent.tools` from a
         directive's `start()` — tool shaping is a directive's job, not a hook's.
+        MCP tools are contributed this way, by the MCP plugin's directive.
         """
 
-        # Get MCP tools
-        mcp_tools = await self.mcp.list_tools()
-        mcp_tools = [
-            Tool.from_fastmcp(t, self.mcp.call_tool)
-            for t in mcp_tools
-        ]
-
-        # Get agent's own internal tools (own + inherited via the class MRO)
-        agent_tools = self.instantiate_agent_tools()
-
-        return agent_tools + mcp_tools
+        # Agent's own internal tools (own + inherited via the class MRO)
+        return self.instantiate_agent_tools()
 
     async def _resolve_directives(self) -> List["Directive"]:
         """

@@ -16,6 +16,11 @@ class Message(BaseModel):
     tool_call_id: Optional[str] = None
     """Only populated for role="tool" messages."""
 
+    structuredContent: Optional[dict] = None
+    """Machine-readable structured output of an MCP tool result
+    (`CallToolResult.structuredContent`). Preserved for UI/host consumption via the
+    streamed tool-result event; never forwarded to LLM providers."""
+
     @computed_field
     @property
     def text(self) -> str:

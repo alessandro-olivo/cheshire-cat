@@ -3,7 +3,6 @@ from typing import TYPE_CHECKING
 
 from cat import log
 from cat.ambient.runtime import set_ccat
-from cat.protocols.model_context.client import MCPClients
 from cat.mad_hatter.mad_hatter import MadHatter
 from cat.services.factory import Registry
 
@@ -49,9 +48,6 @@ class CheshireCat:
 
             # allows plugins to do something before cat components are loaded
             await self.mad_hatter.execute_hook("before_cat_bootstrap", None)
-
-            # init MCP clients cache
-            self.mcp_clients = MCPClients()
 
             # allows plugins to do something after the cat bootstrap is complete
             await self.mad_hatter.execute_hook("after_cat_bootstrap", None)
@@ -114,10 +110,14 @@ class CheshireCat:
         # remove all plugin Endpoint routes from fastapi app
         routes_to_remove = []
         for route in self.fastapi_app.routes:
-            # route may be a plain APIRoute (has `.endpoint`) or a nested
-            # router/mount (from `@endpoint.router`) that does not
+            # A plugin endpoint can surface in `app.routes` as:
+            #   - a plain APIRoute whose `.endpoint` (or the route itself) we tagged
+            #     with `plugin_id` (older Starlette flattened included routers), or
+            #   - an `_IncludedRouter` mount referencing the original tagged router
+            #     via `.original_router` (Starlette >= 1.0 keeps the router intact).
             if hasattr(getattr(route, "endpoint", None), 'plugin_id') \
-                    or hasattr(route, "plugin_id"):
+                    or hasattr(route, "plugin_id") \
+                    or hasattr(getattr(route, "original_router", None), 'plugin_id'):
                 routes_to_remove.append(route)
         for route in routes_to_remove:
             self.fastapi_app.routes.remove(route)

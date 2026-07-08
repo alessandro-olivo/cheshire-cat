@@ -1,9 +1,10 @@
 import inspect
 import time
 from uuid import uuid4
-from typing import Callable, Dict, TYPE_CHECKING
+from dataclasses import dataclass, field
+from typing import Callable, Dict, List, Optional, TYPE_CHECKING
 
-from fastmcp.tools.tool import FunctionTool, ParsedFunction
+from fastmcp.tools.function_tool import FunctionTool, ParsedFunction
 from fastmcp.client.client import CallToolResult
 
 from cat.ambient import agui_event
@@ -12,6 +13,27 @@ from cat.utils import run_sync_or_async
 
 if TYPE_CHECKING:
     from cat.types import Message
+
+
+@dataclass
+class ToolMeta:
+    """UI metadata derived from an MCP tool's `_meta.ui` (MCP Apps).
+
+    - `resource_uri`: a `ui://` URI declaring the tool's UI. `None` = a plain,
+      non-UI tool.
+    - `visibility`: who may invoke the tool. `["model"]` (the default) means it is
+      offered to the LLM; `["app"]` means app-only — hidden from the LLM and
+      reserved for the future UI bridge. Both (`["model", "app"]`) is model-visible.
+    """
+
+    resource_uri: Optional[str] = None
+    visibility: List[str] = field(default_factory=lambda: ["model"])
+
+    @property
+    def is_model_visible(self) -> bool:
+        """Whether this tool should be offered to the LLM."""
+        return "model" in self.visibility
+
 
 class Tool:
     """Cat tool uniforming @tool decorated functions in plugins and MCP tools."""
@@ -24,6 +46,7 @@ class Tool:
         input_schema: Dict,
         output_schema: Dict,
         is_internal: bool = True,
+        meta: Optional[ToolMeta] = None,
     ):
         self.func = func
         self.name = name
@@ -32,7 +55,10 @@ class Tool:
         self.output_schema = output_schema
 
         self.is_internal = is_internal
-    
+
+        # UI metadata (resource_uri, visibility). Absent = non-UI, model-visible.
+        self.meta = meta or ToolMeta()
+
         # will be assigned by MadHatter
         self.plugin_id = None
 
@@ -62,14 +88,23 @@ class Tool:
         t: FunctionTool,
         mcp_client_func: Callable
     ) -> "Tool":
-        
+
+        # MCP Apps UI metadata rides on the tool's `_meta.ui`:
+        #   {"ui": {"resourceUri": "ui://...", "visibility": ["model", "app"]}}
+        ui = (getattr(t, "meta", None) or {}).get("ui", {})
+        meta = ToolMeta(
+            resource_uri = ui.get("resourceUri"),
+            visibility = ui.get("visibility") or ["model"],
+        )
+
         return cls(
             func = mcp_client_func,
             name = t.name,
             description = t.description or t.name,
             input_schema = t.inputSchema,
             output_schema = t.outputSchema,
-            is_internal = False
+            is_internal = False,
+            meta = meta,
         )
     
     def __repr__(self) -> str:
@@ -102,9 +137,8 @@ class Tool:
                     self.func, **tool_call.args
                 )
             else:
-                # MCP tool
-                async with agent.mcp:
-                    tool_result: CallToolResult = await self.func(self.name, tool_call.args)
+                # MCP tool — the bound client function connects statelessly per call
+                tool_result: CallToolResult = await self.func(self.name, tool_call.args)
         except Exception as e:
             tool_result = f"Error: {e}"
 
@@ -123,6 +157,11 @@ class Tool:
 
         from cat.types import Message, TextContent
 
+        # `structuredContent` is the machine-readable twin of a tool result, used
+        # by MCP Apps to feed the widget. It is preserved on the Message but never
+        # forwarded to LLM providers (see openai_compatible.convert_message).
+        structured_content = None
+
         if isinstance(tool_result, str):
             # legacy tools returning plain string
             content_blocks = [TextContent(text=tool_result)]
@@ -130,8 +169,11 @@ class Tool:
             # returning the output of .llm() directly
             content_blocks = tool_result.content
         elif isinstance(tool_result, CallToolResult):
-            # MCP tool result - extract content blocks
-            content_blocks = list(tool_result.content)
+            # MCP tool result — coerce each raw `mcp.types` block into the Cat
+            # content-block wrappers (via its dict form). A `ui://` ResourceLink /
+            # EmbeddedResource is preserved as a resource block, not degraded to text.
+            content_blocks = [b.model_dump() for b in tool_result.content]
+            structured_content = tool_result.structured_content
         else:
             # fallback: convert to string
             content_blocks = [TextContent(text=str(tool_result))]
@@ -140,6 +182,7 @@ class Tool:
             role="tool",
             content=content_blocks,
             tool_call_id=tool_call.id,
+            structuredContent=structured_content,
         )
 
     async def emit_agui_tool_result_event(self, tool_call, tool_output):
@@ -181,7 +224,8 @@ class Tool:
             description=self.description,
             input_schema=self.input_schema,
             output_schema=self.output_schema,
-            is_internal=self.is_internal
+            is_internal=self.is_internal,
+            meta=self.meta,
         )
 
 
