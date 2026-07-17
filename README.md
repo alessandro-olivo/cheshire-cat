@@ -34,7 +34,6 @@ uv run ccat
 ## Docs and Resources
 
 - [Official Documentation](https://cheshire-cat-ai.github.io/docs/)
-- [Discord Server](https://discord.gg/bHX5sNFCYU)
 - [Website](https://cheshirecat.ai/)
 
 
