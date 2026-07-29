@@ -22,8 +22,7 @@ tear down.
 """
 
 from cat import Directive, Agent, log
-from cat.mad_hatter.decorators import Tool
-from cat.types import Message
+from cat.types import Message, Tool
 
 from .config import Settings as MCPSettings, build_client
 

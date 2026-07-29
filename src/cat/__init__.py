@@ -1,5 +1,5 @@
 """
-The `cat` package — the one import surface.
+The `cat` package — the front door.
 
 `cat` means exactly one thing: this package. There is no userspace `cat`
 instance to thread around. You don't import capabilities and hold them; you
@@ -8,10 +8,29 @@ installation:
 
     from cat import log, tool, endpoint, hook, config, user, store, llm
 
-Plus model/agent building blocks (`embedder`, `Agent`) and the advanced tier:
-base classes (`Service`, `User`) and the registry escape hatch (`get`,
-`call_agent`). Names are ordered here by how often plugins actually reach for
-them, most-used first.
+Four modules, one job each — that is the whole import surface:
+
+    cat          build an agent    log tool endpoint hook execute_hook config
+                                   user store plugin agui_event
+                                   llm embedder get get_all call_agent
+                                   Agent Directive
+
+    cat.types    data you pass     Message Task TaskResult Tool
+                                   TextContent ImageContent AudioContent ...
+
+    cat.base     extend the        Service ModelProvider Auth User
+                 framework         OpenAICompatibleProvider
+
+    cat.db       persist           store Store UserStore UserScopedDB
+
+**`cat` to build, `cat.types` to speak, `cat.base` to extend, `cat.db` to
+persist.** A plugin that only defines agents and tools imports from `cat` and
+nothing else; nothing needs an import deeper than these four.
+
+`cat` holds only names you *call or read* — not names you subclass. `Agent` and
+`Directive` are the one deliberate exception, re-exported from `cat.base`
+because you subclass them in your first five minutes. Names are ordered below by
+how often plugins actually reach for them, most-used first.
 """
 
 # --- building blocks (most used) -------------------------------------------
@@ -33,10 +52,8 @@ from .ambient import llm, embedder
 from .services.agents.base import Agent
 from .services.directives.base import Directive
 
-# --- advanced: base classes & registry escape hatch ------------------------
-from .services.service import Service
-from .auth import User
-from .ambient import get, call_agent
+# --- registry escape hatch -------------------------------------------------
+from .ambient import get, get_all, call_agent
 
 __all__ = [
     # building blocks (most used)
@@ -56,9 +73,8 @@ __all__ = [
     "embedder",
     "Agent",
     "Directive",
-    # advanced: base classes & registry escape hatch
-    "Service",
-    "User",
+    # registry escape hatch
     "get",
+    "get_all",
     "call_agent",
 ]

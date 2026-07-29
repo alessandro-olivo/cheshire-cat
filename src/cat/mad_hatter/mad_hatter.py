@@ -1,5 +1,4 @@
 import os
-import inspect
 import glob
 import shutil
 from typing import List, Dict, Any, Callable, Type, TYPE_CHECKING
@@ -9,6 +8,7 @@ from cat.db import store
 from cat.mad_hatter.plugin_extractor import PluginExtractor
 from cat.mad_hatter.registry import registry_download_plugin
 from cat.mad_hatter.plugin import Plugin
+from cat.ambient.runtime import use_plugin
 
 if TYPE_CHECKING:
     from cat.services.service import Service
@@ -347,10 +347,11 @@ class MadHatter:
                 log.debug(
                     f"Executing {hook.plugin_id}::{hook.name} with priority {hook.priority}"
                 )
-                returned = await utils.run_sync_or_async(
-                    hook.function,
-                    value,
-                )
+                with use_plugin(hook.plugin_id):
+                    returned = await utils.run_sync_or_async(
+                        hook.function,
+                        value,
+                    )
                 if returned is not None:
                     value = returned
             except Exception:
@@ -363,23 +364,7 @@ class MadHatter:
 
 
     def get_plugin(self) -> Plugin:
-        """Internal use only. Services should use `self.plugin`."""
+        """The plugin whose code is currently running (see `cat.plugin`)."""
+        from cat.ambient.runtime import plugin as plugin_proxy
 
-        stack = inspect.stack()
-        norm_plugins_path = os.path.normpath(config.PLUGINS_PATH)
-
-        for frame_info in stack:
-
-            frame = frame_info.frame
-            module = inspect.getmodule(frame)
-
-            if module and hasattr(module, '__file__'):
-                
-                abs_path = os.path.abspath(module.__file__)
-                if abs_path.startswith(norm_plugins_path + os.sep):
-                    plugin_suffix = os.path.relpath(abs_path, norm_plugins_path)
-                    plugin_name = plugin_suffix.split(os.sep)[0]
-                    if plugin_name in self.plugins:
-                        return self.plugins[plugin_name]
-                    
-        raise Exception("No calling plugin found in the call stack.")
+        return plugin_proxy._plugin()

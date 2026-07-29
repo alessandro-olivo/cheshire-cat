@@ -6,7 +6,8 @@ import tempfile
 import importlib
 import subprocess
 from typing import List, Type
-from inspect import getmembers, isclass
+from functools import wraps
+from inspect import getmembers, isclass, iscoroutinefunction, signature
 from packaging.requirements import Requirement
 
 from cat.mad_hatter.decorators import (
@@ -17,6 +18,7 @@ from cat.mad_hatter.decorators import (
 from cat.mad_hatter.decorators.endpoint import forget_module as forget_endpoint_module
 from cat.mad_hatter.plugin_manifest import PluginManifest
 from cat.services.service import Service
+from cat.ambient.runtime import use_plugin
 from cat import log, config
 
 
@@ -270,9 +272,39 @@ class Plugin:
             route.plugin_id = self._id
             if hasattr(route, "endpoint"):
                 route.endpoint.plugin_id = self._id  # this works
+                # so `from cat import plugin` resolves inside the handler
+                route.endpoint = self._own_plugin_context(route.endpoint)
             nested = getattr(route, "routes", None)
             if nested:
                 self._tag_routes(nested)
+
+    def _own_plugin_context(self, func):
+        """Wrap a plugin's endpoint so `plugin` resolves while it runs.
+
+        FastAPI has already read the signature by the time routes are tagged, so
+        the wrapper must preserve it exactly — hence `functools.wraps` plus an
+        explicit `__signature__` copy.
+        """
+        if getattr(func, "_has_plugin_context", False):
+            return func
+
+        plugin_id = self._id
+
+        if iscoroutinefunction(func):
+            @wraps(func)
+            async def wrapper(*args, **kwargs):
+                with use_plugin(plugin_id):
+                    return await func(*args, **kwargs)
+        else:
+            @wraps(func)
+            def wrapper(*args, **kwargs):
+                with use_plugin(plugin_id):
+                    return func(*args, **kwargs)
+
+        wrapper.__signature__ = signature(func)
+        wrapper.plugin_id = plugin_id
+        wrapper._has_plugin_context = True
+        return wrapper
     
     def _clean_service(self, service: Type[Service]):
         s = service[1]

@@ -5,7 +5,7 @@ without threading objects around.
 Three submodules, one idea:
 
 - `verbs`        — the actions you *call*: `llm`, `embedder`, `hook`,
-                   `execute_hook`, `agui_event`, `call_agent`, `auth`, `get`.
+                   `execute_hook`, `agui_event`, `call_agent`, `auth`, `get`, `get_all`.
 - `context_vars` — per-request state (a `contextvars.ContextVar`): `ctx`, `user`.
 - `runtime`      — the one `CheshireCat` per process: `ccat`, `plugin`.
 
@@ -22,6 +22,7 @@ from cat.ambient.verbs import (
     hook,
     execute_hook,
     get,
+    get_all,
     call_agent,
 )
 
@@ -34,5 +35,6 @@ __all__ = [
     "hook",
     "execute_hook",
     "get",
+    "get_all",
     "call_agent",
 ]

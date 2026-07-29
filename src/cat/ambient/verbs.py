@@ -280,6 +280,15 @@ async def get(type: str, slug: str, raise_error: bool = True):
     return await ccat().get(type, slug, raise_error=raise_error)
 
 
+async def get_all(type: str):
+    """Every registered service of a type, keyed by slug.
+
+    The plural of `get`, for the rare case where you need the whole set rather
+    than one by name (e.g. trying each auth handler in turn).
+    """
+    return await ccat().get_all(type)
+
+
 async def call_agent(slug: str, task: "Task") -> "TaskResult":
     """Run another agent by slug. No request threading required."""
     agent = await ccat().get("agents", slug, raise_error=True)

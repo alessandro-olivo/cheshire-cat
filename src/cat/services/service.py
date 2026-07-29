@@ -174,6 +174,11 @@ class Service(metaclass=ServiceMeta):
         preload, so the value is always current. Loading never destroys the
         stored record: a missing/corrupted blob falls back to defaults, and a
         blob that no longer fully validates is salvaged field-by-field.
+
+        No cache means one DB read per call, so hoist it out of a hot loop
+        yourself (`s = await self.load_settings()` once, then reuse `s`) rather
+        than calling it per iteration. This is a deliberate trade: always-current
+        values, and no invalidation rules to learn.
         """
         from cat.db import store
 

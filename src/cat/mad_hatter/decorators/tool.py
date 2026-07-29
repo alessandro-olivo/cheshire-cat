@@ -8,6 +8,7 @@ from fastmcp.tools.function_tool import FunctionTool, ParsedFunction
 from fastmcp.client.client import CallToolResult
 
 from cat.ambient import agui_event
+from cat.ambient.runtime import use_plugin
 from cat.protocols.agui import events
 from cat.utils import run_sync_or_async
 
@@ -128,17 +129,22 @@ class Tool:
             A Message with role="tool" and the tool output.
         """
 
+        # a tool belongs to the plugin that defined the agent carrying it, so
+        # `from cat import plugin` resolves while the tool body runs
+        plugin_id = self.plugin_id or getattr(type(agent), "plugin_id", None)
+
         # execute the tool
         try:
-            if self.is_internal:
-                # internal tool — ambient state (user, capabilities) comes from
-                # `from cat import ...`, not a passed `caller`.
-                tool_result: str = await run_sync_or_async(
-                    self.func, **tool_call.args
-                )
-            else:
-                # MCP tool — the bound client function connects statelessly per call
-                tool_result: CallToolResult = await self.func(self.name, tool_call.args)
+            with use_plugin(plugin_id):
+                if self.is_internal:
+                    # internal tool — ambient state (user, capabilities) comes from
+                    # `from cat import ...`, not a passed `caller`.
+                    tool_result: str = await run_sync_or_async(
+                        self.func, **tool_call.args
+                    )
+                else:
+                    # MCP tool — the bound client function connects statelessly per call
+                    tool_result: CallToolResult = await self.func(self.name, tool_call.args)
         except Exception as e:
             tool_result = f"Error: {e}"
 

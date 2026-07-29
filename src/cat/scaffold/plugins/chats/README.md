@@ -4,8 +4,9 @@ Conversation persistence for the Cat. This plugin owns:
 
 - the `ccat_chats` table (`db.py`), built on core's `UserScopedDB` so every
   conversation is scoped to its owner;
-- the `/chats` REST CRUD (`endpoints/crud.py`), built with the generic
-  `create_crud` helper.
+- the `/chats` REST CRUD (`endpoints/crud.py`), written as plain `@endpoint`
+  handlers — no router factory — each gated with `role="authenticated"` and
+  scoped to the ambient `user`.
 
 It is **backend-only** — no frontend, no vendor dependencies. The `ui` plugin (or
 any other frontend, or a headless integration) reaches saved conversations over

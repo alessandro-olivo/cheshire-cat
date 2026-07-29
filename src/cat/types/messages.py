@@ -1,7 +1,7 @@
 from typing import List, Literal, Optional
 from pydantic import BaseModel, computed_field
 
-from ..protocols.model_context.type_wrappers import ContentBlock, ToolCall
+from ..protocols.model_context.type_wrappers import ContentBlock, TextContent, ToolCall
 
 
 class Message(BaseModel):
@@ -20,6 +20,16 @@ class Message(BaseModel):
     """Machine-readable structured output of an MCP tool result
     (`CallToolResult.structuredContent`). Preserved for UI/host consumption via the
     streamed tool-result event; never forwarded to LLM providers."""
+
+    @classmethod
+    def user(cls, text: str) -> "Message":
+        """A user message from plain text — `Message.user("hello")`."""
+        return cls(role="user", content=[TextContent(text=text)])
+
+    @classmethod
+    def assistant(cls, text: str) -> "Message":
+        """An assistant message from plain text."""
+        return cls(role="assistant", content=[TextContent(text=text)])
 
     @computed_field
     @property

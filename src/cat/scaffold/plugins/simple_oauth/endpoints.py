@@ -17,8 +17,7 @@ from urllib.parse import quote
 from fastapi import Request, HTTPException, Form
 from fastapi.responses import RedirectResponse, HTMLResponse
 
-from cat import endpoint, config
-from cat.ambient.runtime import ccat
+from cat import endpoint, config, get_all
 
 
 def secure_cookies() -> bool:
@@ -34,7 +33,7 @@ def secure_cookies() -> bool:
 @endpoint.get("/auth/login/{name}", tags=["Auth"])
 async def oauth_login(r: Request, name: str) -> RedirectResponse:
     """Start the OAuth flow for the named handler."""
-    ahs = await ccat().get_all("auths")
+    ahs = await get_all("auths")
     auth = ahs.get(name)
     if auth is None:
         raise HTTPException(status_code=404, detail=f"Auth Handler {name} not found.")
@@ -58,7 +57,7 @@ async def oauth_login(r: Request, name: str) -> RedirectResponse:
 @endpoint.get("/auth/callback/{name}", tags=["Auth"])
 async def oauth_callback(r: Request, name: str):
     """Finish the OAuth flow: map the provider code to a user, mint a core JWT."""
-    ahs = await ccat().get_all("auths")
+    ahs = await get_all("auths")
     auth = ahs.get(name)
     if auth is None:
         raise HTTPException(status_code=404, detail=f"Auth Handler {name} not found.")

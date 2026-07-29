@@ -35,7 +35,10 @@ class Task(BaseModel):
 class TaskResult(Task):
     """
     Output from an Agent.
+
+    Deliberately the same shape as `Task`: what an agent returns is what the next
+    agent can be handed, so a result feeds straight back in with no adapter. The
+    distinct name marks direction (in vs out), not a different set of fields.
     """
 
     pass
-    #status: Literal[]

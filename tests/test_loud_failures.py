@@ -151,3 +151,35 @@ async def test_module_level_tool_warns(cheshire_cat, warnings_logged):
     cheshire_cat.mad_hatter._warn_about_likely_mistakes()
 
     assert any("orphan_tool" in m for m in warnings_logged), warnings_logged
+
+
+# --- the `plugin` proxy resolves from context, not from the call stack -------
+
+def test_plugin_proxy_outside_plugin_code_is_a_clear_error():
+    from cat import plugin
+
+    with pytest.raises(RuntimeError, match="only available inside plugin code"):
+        plugin.path
+
+
+def test_plugin_proxy_repr_says_where_it_is():
+    from cat import plugin
+
+    assert "outside plugin code" in repr(plugin)
+
+
+@pytest.mark.with_plugins("uploads")
+async def test_plugin_proxy_resolves_inside_an_endpoint(client):
+    """The `ui` plugin reads `plugin.path` inside a handler wrapped by FastAPI.
+
+    Stack-walking broke as soon as a wrapper sat between framework and handler;
+    the contextvar does not care how many frames are in between.
+    """
+    from cat.ambient.runtime import use_plugin, plugin
+
+    with use_plugin("uploads"):
+        assert plugin.id == "uploads"
+
+    # and it is reset on the way out
+    with pytest.raises(RuntimeError):
+        plugin.id

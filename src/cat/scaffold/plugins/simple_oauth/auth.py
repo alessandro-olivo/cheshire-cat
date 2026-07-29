@@ -13,7 +13,8 @@ from uuid import uuid5, NAMESPACE_DNS
 from urllib.parse import urljoin
 from typing import Dict
 
-from cat import config, User
+from cat import config
+from cat.base import User
 from cat.base import Auth
 
 
