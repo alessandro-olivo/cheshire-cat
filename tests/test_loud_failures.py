@@ -69,20 +69,49 @@ async def test_unregistered_service_settings_fail_loudly():
         await Stray.load_settings()
 
 
-def test_typo_in_a_hook_name_is_warned_about():
-    """`before_agent_ran` is one letter from a real hook — say so."""
-    from cat.mad_hatter.decorators.hook import CORE_HOOKS
-    from cat.errors import _did_you_mean
+async def test_typo_in_a_hook_name_is_warned_about(cheshire_cat, warnings_logged):
+    """`before_agent_ran` never fires. When the real hook does, say so.
 
-    assert _did_you_mean("before_agent_ran", list(CORE_HOOKS)) == "before_agent_run"
+    The reference is the name actually fired — there is no maintained list of
+    hook names anywhere.
+    """
+    from cat.mad_hatter.decorators import Hook
+
+    typo = Hook(name="before_agent_ran", func=lambda v: v, priority=1)
+    typo.plugin_id = "demo"
+    cheshire_cat.mad_hatter.hooks["before_agent_ran"] = [typo]
+
+    await cheshire_cat.mad_hatter.execute_hook("before_agent_run", None)
+
+    assert any("before_agent_ran" in m for m in warnings_logged), warnings_logged
+    assert any("Did you mean 'before_agent_run'" in m for m in warnings_logged)
 
 
-def test_a_plugins_own_hook_name_is_not_warned_about():
-    """Plugins may fire hooks by any name; only near-misses are suspicious."""
-    from cat.mad_hatter.decorators.hook import CORE_HOOKS
-    from cat.errors import _did_you_mean
+async def test_a_plugins_own_hook_name_is_not_warned_about(cheshire_cat, warnings_logged):
+    """Plugins may define hooks by any name; only near-misses are suspicious."""
+    from cat.mad_hatter.decorators import Hook
 
-    assert _did_you_mean("after_file_upload", list(CORE_HOOKS)) is None
+    own = Hook(name="after_file_upload", func=lambda v: v, priority=1)
+    own.plugin_id = "uploads"
+    cheshire_cat.mad_hatter.hooks["after_file_upload"] = [own]
+
+    await cheshire_cat.mad_hatter.execute_hook("before_agent_run", None)
+
+    assert not any("after_file_upload" in m for m in warnings_logged), warnings_logged
+
+
+async def test_a_hook_typo_is_warned_about_once(cheshire_cat, warnings_logged):
+    """Firing in a loop must not spam the log."""
+    from cat.mad_hatter.decorators import Hook
+
+    typo = Hook(name="after_agent_runn", func=lambda v: v, priority=1)
+    typo.plugin_id = "demo"
+    cheshire_cat.mad_hatter.hooks["after_agent_runn"] = [typo]
+
+    for _ in range(5):
+        await cheshire_cat.mad_hatter.execute_hook("after_agent_run", None)
+
+    assert len([m for m in warnings_logged if "after_agent_runn" in m]) == 1
 
 
 async def test_unknown_directive_slug_warns_at_discovery(cheshire_cat, warnings_logged):

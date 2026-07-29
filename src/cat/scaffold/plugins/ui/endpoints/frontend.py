@@ -1,12 +1,12 @@
 import os
 from fastapi import HTTPException
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse
 
 from cat import endpoint, plugin
 
 
 @endpoint.get("/", include_in_schema=False)
-async def frontend_index() -> HTMLResponse:
+async def frontend_index() -> FileResponse:
 
     index_path = os.path.abspath(
         os.path.join(plugin.path, "dist/index.html")
@@ -15,7 +15,7 @@ async def frontend_index() -> HTMLResponse:
 
 
 @endpoint.get("/assets/{path:path}", include_in_schema=False)
-async def frontend_assets(path: str) -> HTMLResponse:
+async def frontend_assets(path: str) -> FileResponse:
 
     assets_path = os.path.abspath(
         os.path.join(plugin.path, "dist/assets")

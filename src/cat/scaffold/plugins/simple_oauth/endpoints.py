@@ -11,12 +11,24 @@ reachable before you are authenticated.
 
 import os
 import hashlib
+from html import escape
+from urllib.parse import quote
 
 from fastapi import Request, HTTPException, Form
 from fastapi.responses import RedirectResponse, HTMLResponse
 
 from cat import endpoint, config
 from cat.ambient.runtime import ccat
+
+
+def secure_cookies() -> bool:
+    """Whether to mark cookies `secure`: only when the Cat is served over HTTPS.
+
+    A secure cookie is dropped by the browser on a plain-http dev setup. Read at
+    call time, never at import — `config` is live, and a value frozen at import
+    would ignore every later change.
+    """
+    return "https" in config.URL
 
 
 @endpoint.get("/auth/login/{name}", tags=["Auth"])
@@ -36,7 +48,7 @@ async def oauth_login(r: Request, name: str) -> RedirectResponse:
         "origin_url",
         origin_url,
         httponly=True,
-        secure="https" in config.URL,
+        secure=secure_cookies(),
         samesite="lax",
         max_age=300,
     )
@@ -64,12 +76,12 @@ async def oauth_callback(r: Request, name: str):
 
     origin_url = r.cookies.get("origin_url") or config.URL
     response = RedirectResponse(origin_url)
-    response.delete_cookie("origin_url", samesite="lax", secure="https" in config.URL)
+    response.delete_cookie("origin_url", samesite="lax", secure=secure_cookies())
     response.set_cookie(
         "access_token",
         token,
         httponly=True,
-        secure="https" in config.URL,
+        secure=secure_cookies(),
         samesite="lax",
         max_age=int(config.JWT_EXPIRE_MINUTES) * 60,
     )
@@ -84,7 +96,7 @@ def oauth_logout(r: Request) -> RedirectResponse:
     response.delete_cookie(
         "access_token",
         httponly=True,
-        secure="https" in config.URL,
+        secure=secure_cookies(),
         samesite="lax",
     )
     return response
@@ -97,8 +109,12 @@ async def internal_idp(redirect_uri: str) -> HTMLResponse:
     """Serve the mock login page."""
     html_path = os.path.join(os.path.dirname(__file__), "idp.html")
     with open(html_path, "r") as f:
-        html = f.read()
-    return HTMLResponse(html.replace("{{redirect_uri}}", redirect_uri))
+        page = f.read()
+
+    # `redirect_uri` is a query parameter landing inside an HTML attribute, so
+    # it MUST be escaped: unescaped, `"><script>...` closes the attribute and
+    # the tag. Escape at every substitution, not just the ones that look risky.
+    return HTMLResponse(page.replace("{{redirect_uri}}", escape(redirect_uri)))
 
 
 @endpoint.post("/auth/internal-idp/login", include_in_schema=False)
@@ -107,6 +123,9 @@ async def internal_idp_login(api_key: str = Form(...), redirect_uri: str = Form(
     if api_key == config.API_KEY:
         code = hashlib.sha256(api_key.encode()).hexdigest()[:16]
         return RedirectResponse(url=f"{redirect_uri}?code={code}", status_code=303)
+    # back to the form: `redirect_uri` is going into a query string now, so it
+    # needs URL quoting rather than HTML escaping
     return RedirectResponse(
-        url=f"/auth/internal-idp?redirect_uri={redirect_uri}", status_code=303
+        url=f"/auth/internal-idp?redirect_uri={quote(redirect_uri, safe='')}",
+        status_code=303,
     )

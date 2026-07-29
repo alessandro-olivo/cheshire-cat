@@ -45,6 +45,12 @@ class MadHatter:
         # callback out of the hook system to notify other components about a refresh
         self.on_refresh_callbacks: List[Callable] = []
 
+        # hook names that have actually been fired — the only authoritative list
+        # of real hook names, and the reference a typo is measured against.
+        # `_warned_hooks` keeps the warning to once per misspelled name.
+        self._fired_hooks: set[str] = set()
+        self._warned_hooks: set[str] = set()
+
         #self._ensure_plugins_path_importable()
 
 
@@ -189,28 +195,15 @@ class MadHatter:
     def _warn_about_likely_mistakes(self):
         """Say something when a plugin looks mis-wired. Warn, never fail.
 
-        Three cheap checks, run once per reload. Each one catches a mistake that
-        is otherwise silent (a hook that never fires, a tool nothing can call) or
-        that only surfaces much later, at run time (a directive slug that matches
-        nothing).
+        Two cheap checks, run once per reload: a tool nothing can call, and a
+        directive slug that would only blow up much later, at run time.
         """
         from cat.errors import _did_you_mean
-        from cat.mad_hatter.decorators.hook import CORE_HOOKS
 
-        # 1. A hook name one edit away from a core hook is a typo. An entirely
-        #    different name is a plugin's own hook, which is legal — no warning.
-        for hook_name, hooks in self.hooks.items():
-            if hook_name in CORE_HOOKS:
-                continue
-            if suggestion := _did_you_mean(hook_name, list(CORE_HOOKS)):
-                for h in hooks:
-                    log.warning(
-                        f"Plugin '{h.plugin_id}' defines hook '{hook_name}', which no "
-                        f"core hook is named. Did you mean '{suggestion}'? "
-                        "(If it is your own hook, ignore this — you must fire it yourself.)"
-                    )
+        # (Typo'd hook names are caught in `execute_hook`, where the real
+        #  vocabulary is — the names actually fired. See `_warn_about_hook_typos`.)
 
-        # 2. A directive slug an agent declares but nothing registers would raise
+        # 1. A directive slug an agent declares but nothing registers would raise
         #    mid-run, when the agent is first used. Say so now instead.
         # Every Directive subclass that has been imported — core's and plugins' —
         # rather than the registry, whose population order relative to this
@@ -233,7 +226,7 @@ class MadHatter:
                     message += f" Did you mean '{suggestion}'?"
                 log.warning(message)
 
-        # 3. A module-level @tool is never reachable: tools are agent-scoped, so
+        # 2. A module-level @tool is never reachable: tools are agent-scoped, so
         #    they must live on an agent class (or be added to `agent.tools` by a
         #    directive). At module level it is defined and then ignored.
         for plugin in self.plugins.values():
@@ -291,6 +284,31 @@ class MadHatter:
         await self.refresh_caches()
 
 
+    def _warn_about_hook_typos(self, fired_name: str):
+        """Flag handlers whose name is a near-miss of the hook being fired.
+
+        The vocabulary of real hook names is not a list anyone maintains — it is
+        whatever core and plugins actually *fire*. So the check lives here, at
+        the fire, where the correct spelling is in hand: any handler name that is
+        one edit away from it, and has never itself been fired, is a typo that
+        would otherwise sit silent forever.
+        """
+        from cat.errors import _did_you_mean
+
+        self._fired_hooks.add(fired_name)
+
+        for defined in self.hooks:
+            if defined in self._fired_hooks or defined in self._warned_hooks:
+                continue
+            if _did_you_mean(defined, [fired_name]):
+                self._warned_hooks.add(defined)
+                for h in self.hooks[defined]:
+                    log.warning(
+                        f"Plugin '{h.plugin_id}' defines hook '{defined}', which nothing "
+                        f"fires. Did you mean '{fired_name}'? (If '{defined}' is your own "
+                        "hook, ignore this — you fire it yourself with execute_hook.)"
+                    )
+
     async def execute_hook(
         self, hook_name: str, default_value: Any
     ) -> Any:
@@ -309,6 +327,8 @@ class MadHatter:
         Any
             The value after all hooks have been executed.
         """
+
+        self._warn_about_hook_typos(hook_name)
 
         # check if hook is supported
         if hook_name not in self.hooks.keys():
