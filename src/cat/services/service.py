@@ -4,8 +4,8 @@ The Service base.
 A service is a object resolved through the internal cat
 registry. There is exactly one base class; lifecycle is a single boolean:
 
-- `singleton = True`  (default) → built once, cached, reused.
-- `singleton = False`          → built fresh per resolution (agents, which
+- `singleton = True`            → built once, cached, reused.
+- `singleton = False` (default) → built fresh per resolution (agents, which
                                   mutate run state and must not be shared).
 
 Services reach ambient state by importing it (`from cat import embedder, user,
@@ -36,6 +36,7 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel, ValidationError
 
 from cat.ambient.runtime import ccat
+from cat.errors import PluginError
 
 if TYPE_CHECKING:
     from cat.mad_hatter.plugin import Plugin
@@ -109,7 +110,20 @@ class Service(metaclass=ServiceMeta):
 
     @classmethod
     def _settings_key(cls) -> str:
-        """Stable DB key for this service's settings blob."""
+        """Stable DB key for this service's settings blob.
+
+        `plugin_id` is stamped on the class when it is registered, so a `None`
+        here means the service was never registered — its settings would be
+        read and written under `settings_None_...`, silently sharing one key
+        with every other unregistered service. Fail instead.
+        """
+        if cls.plugin_id is None:
+            raise PluginError(
+                f"{cls.__name__} is not registered, so it has no settings key "
+                f"(it would use 'settings_None_{cls.service_type}_{cls.slug}', "
+                "shared with every other unregistered service). Services are "
+                "registered by being defined in an active plugin."
+            )
         return f"settings_{cls.plugin_id}_{cls.service_type}_{cls.slug}"
 
     @classmethod

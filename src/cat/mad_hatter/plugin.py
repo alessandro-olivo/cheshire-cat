@@ -11,8 +11,10 @@ from packaging.requirements import Requirement
 
 from cat.mad_hatter.decorators import (
     Hook,
-    Endpoint
+    Endpoint,
+    Tool
 )
+from cat.mad_hatter.decorators.endpoint import forget_module as forget_endpoint_module
 from cat.mad_hatter.plugin_manifest import PluginManifest
 from cat.services.service import Service
 from cat import log, config
@@ -55,6 +57,9 @@ class Plugin:
         self._hooks: List[Hook] = []  # list of plugin hooks
         self._endpoints: List[Endpoint] = [] # list of plugin endpoints
         self._services: List[Type[Service]] = [] # list of service classes
+        # `@tool`s sitting at module level, which nothing can call — collected
+        # only so discovery can warn about them (see MadHatter).
+        self._module_level_tools: List[tuple] = []
 
     def activate(self):
         """Activate plugin."""
@@ -97,6 +102,7 @@ class Plugin:
         self._hooks = []
         self._endpoints = []
         self._services = []
+        self._module_level_tools = []
 
     def _load_manifest(self) -> PluginManifest:
         
@@ -177,6 +183,7 @@ class Plugin:
         hooks = []
         endpoints = []
         services = []
+        module_level_tools = []
 
         # TODOV2: this should probably go in mad_hatter
         base_path = config.PLUGINS_PATH
@@ -203,6 +210,10 @@ class Plugin:
 
             log.debug(f"Import module {module_name}")
 
+            # forget this module's endpoint names, so re-importing it (reload,
+            # or another app instance in tests) is not read as a name collision
+            forget_endpoint_module(module_name)
+
             try:
                 plugin_module = importlib.import_module(module_name)
 
@@ -213,6 +224,7 @@ class Plugin:
                     plugin_module,
                     lambda S: self._is_cat_service(S, module_name)
                 )
+                module_level_tools += getmembers(plugin_module, self._is_cat_tool)
 
             except Exception:
                 log.error(f"Error in {module_name}. Unable to load plugin {self._id}")
@@ -223,6 +235,7 @@ class Plugin:
         self._hooks = list(map(self._clean_hook, hooks))
         self._endpoints = list(map(self._clean_endpoint, endpoints))
         self._services = list(map(self._clean_service, services))
+        self._module_level_tools = module_level_tools
 
 
     def plugin_specific_error_message(self):
@@ -291,6 +304,12 @@ class Plugin:
     @staticmethod
     def _is_custom_endpoint(obj):
         return isinstance(obj, Endpoint)
+
+    # a Tool at module level: tools are agent-scoped, so one defined outside an
+    # Agent class is unreachable. Collected purely to warn about it.
+    @staticmethod
+    def _is_cat_tool(obj):
+        return isinstance(obj, Tool)
     
     @property
     def path(self):
@@ -315,3 +334,7 @@ class Plugin:
     @property
     def services(self):
         return self._services
+
+    @property
+    def module_level_tools(self):
+        return self._module_level_tools

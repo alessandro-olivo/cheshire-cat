@@ -67,8 +67,8 @@ async def _default_model_slug(field: str) -> str:
 async def llm(
     system_prompt: str = "",
     model: str | None = None,
-    messages: "list[Message]" = [],
-    tools: "list[Tool]" = [],
+    messages: "list[Message] | None" = None,
+    tools: "list[Tool] | None" = None,
     stream: bool = True,
 ) -> "Message":
     """
@@ -78,6 +78,9 @@ async def llm(
     `model="provider:model"`. Streams tokens to the current client via the
     request context's stream callback.
     """
+    messages = list(messages) if messages else []
+    tools = tools or []
+
     slug = model or await _default_model_slug("default_llm")
     provider_slug, model_slug = _split_slug(slug)
     provider = await ccat().get("model_providers", provider_slug, raise_error=True)
@@ -92,6 +95,12 @@ async def llm(
         messages = [Message(role="user", content=[TextContent(text=system_prompt)])]
         system_prompt = ""
 
+    # One id for this whole response: Start, every Content delta and End carry
+    # it, so a client can correlate the pieces of one message (and tell two
+    # concurrent responses apart). A fresh uuid per event would make that
+    # impossible.
+    message_id = str(uuid4())
+
     # Stream text tokens as AGUI events.
     on_token = None
     text_started = False
@@ -102,11 +111,11 @@ async def llm(
                 return
             if not text_started:
                 await agui_event(events.TextMessageStartEvent(
-                    message_id=str(uuid4()), timestamp=int(time.time())
+                    message_id=message_id, timestamp=int(time.time())
                 ))
                 text_started = True
             await agui_event(events.TextMessageContentEvent(
-                message_id=str(uuid4()), delta=token, timestamp=int(time.time())
+                message_id=message_id, delta=token, timestamp=int(time.time())
             ))
 
     async def on_tool_call(tool_call):
@@ -132,7 +141,7 @@ async def llm(
 
     if text_started:
         await agui_event(events.TextMessageEndEvent(
-            message_id=str(uuid4()), timestamp=int(time.time())
+            message_id=message_id, timestamp=int(time.time())
         ))
 
     return result
@@ -143,7 +152,14 @@ async def embedder(text: str, model: str | None = None) -> list[float]:
     slug = model or await _default_model_slug("default_embedder")
     provider_slug, model_slug = _split_slug(slug)
     provider = await ccat().get("model_providers", provider_slug, raise_error=True)
-    return await provider.embed(model_slug, text)
+
+    vector = await provider.embed(model_slug, text)
+    if vector is None:
+        raise RuntimeError(
+            f"Provider '{provider_slug}' does not support embeddings. "
+            "Configure a different default embedder, or implement embed() on the provider."
+        )
+    return vector
 
 
 # ---------------------------------------------------------------------------
@@ -159,11 +175,16 @@ async def auth(request, role: str | None = None) -> "User | None":
     """
     Authenticate a request against the registered auth handlers, returning the
     first `User` produced. Optionally enforce a role.
+
+    Handlers are tried by descending `priority` (ties keep registration order),
+    so which one wins is a property a plugin declares rather than an accident of
+    discovery order.
     """
     from cat.auth.user import User
 
     handlers = await ccat().get_all("auths")
-    for handler in handlers.values():
+    ordered = sorted(handlers.values(), key=lambda h: -h.priority)
+    for handler in ordered:
         candidate = await handler.authenticate(request)
         if candidate and isinstance(candidate, User):
             if role and not candidate.has_role(role):

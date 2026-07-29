@@ -18,6 +18,15 @@ if TYPE_CHECKING:
     )
 
 
+def _all_subclasses(cls) -> set:
+    """Every subclass of `cls`, at any depth."""
+    found = set()
+    for sub in cls.__subclasses__():
+        found.add(sub)
+        found |= _all_subclasses(sub)
+    return found
+
+
 class MadHatter:
     """Plugin manager."""
 
@@ -171,9 +180,69 @@ class MadHatter:
         for hook_name in self.hooks.keys():
             self.hooks[hook_name].sort(key=lambda x: x.priority, reverse=True)
 
+        self._warn_about_likely_mistakes()
+
         # Notify subscribers about finished refresh
         for callback in self.on_refresh_callbacks:
             await utils.run_sync_or_async(callback)
+
+    def _warn_about_likely_mistakes(self):
+        """Say something when a plugin looks mis-wired. Warn, never fail.
+
+        Three cheap checks, run once per reload. Each one catches a mistake that
+        is otherwise silent (a hook that never fires, a tool nothing can call) or
+        that only surfaces much later, at run time (a directive slug that matches
+        nothing).
+        """
+        from cat.errors import _did_you_mean
+        from cat.mad_hatter.decorators.hook import CORE_HOOKS
+
+        # 1. A hook name one edit away from a core hook is a typo. An entirely
+        #    different name is a plugin's own hook, which is legal — no warning.
+        for hook_name, hooks in self.hooks.items():
+            if hook_name in CORE_HOOKS:
+                continue
+            if suggestion := _did_you_mean(hook_name, list(CORE_HOOKS)):
+                for h in hooks:
+                    log.warning(
+                        f"Plugin '{h.plugin_id}' defines hook '{hook_name}', which no "
+                        f"core hook is named. Did you mean '{suggestion}'? "
+                        "(If it is your own hook, ignore this — you must fire it yourself.)"
+                    )
+
+        # 2. A directive slug an agent declares but nothing registers would raise
+        #    mid-run, when the agent is first used. Say so now instead.
+        # Every Directive subclass that has been imported — core's and plugins' —
+        # rather than the registry, whose population order relative to this
+        # refresh is not guaranteed.
+        from cat.base import Directive
+
+        known_directives = {
+            D.slug for D in _all_subclasses(Directive) if D.slug is not None
+        }
+        known_directives.update(self.service_classes.get("directives", {}))
+        for agent in self.service_classes.get("agents", {}).values():
+            for d in getattr(agent, "directives", []):
+                if not isinstance(d, str) or d in known_directives:
+                    continue
+                message = (
+                    f"Agent '{agent.slug}' declares directive '{d}', which is not "
+                    f"registered. Known directives: {', '.join(sorted(known_directives)) or 'none'}."
+                )
+                if suggestion := _did_you_mean(d, sorted(known_directives)):
+                    message += f" Did you mean '{suggestion}'?"
+                log.warning(message)
+
+        # 3. A module-level @tool is never reachable: tools are agent-scoped, so
+        #    they must live on an agent class (or be added to `agent.tools` by a
+        #    directive). At module level it is defined and then ignored.
+        for plugin in self.plugins.values():
+            for name, t in plugin.module_level_tools:
+                log.warning(
+                    f"Plugin '{plugin.id}' defines tool '{name}' at module level, where "
+                    "nothing can call it. Tools are agent-scoped: make it a method on "
+                    "an Agent, or append it to `agent.tools` from a directive's start()."
+                )
 
     def plugin_exists(self, plugin_id) -> bool:
         """Check if a plugin exists locally."""

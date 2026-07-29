@@ -1,6 +1,19 @@
 from typing import Union, Callable
 
 
+# The lifecycle hooks core fires. Plugins may define and fire hooks by any other
+# name (see `uploads`' `after_file_upload`), so an unknown name is NOT an error —
+# but a name one letter away from one of these almost certainly is a typo, and
+# discovery says so. Keep in sync with the catalog in `cat.ambient.verbs`.
+CORE_HOOKS = (
+    "before_cat_bootstrap",
+    "after_cat_bootstrap",
+    "after_plugins_reload",
+    "before_agent_run",
+    "after_agent_run",
+)
+
+
 # class to represent a @hook
 class Hook:
     def __init__(self, name: str, func: Callable, priority: int):

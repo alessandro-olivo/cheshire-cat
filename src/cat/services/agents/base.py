@@ -3,7 +3,7 @@ from inspect import isclass
 
 from pydantic import BaseModel
 
-from cat.types import Message, Task, TaskResult
+from cat.types import Message, Task, TaskResult, TextContent
 from cat.mad_hatter.decorators import Tool
 from cat.services.service import Service
 from cat.ambient import llm, execute_hook
@@ -191,14 +191,30 @@ class Agent(Service):
         return resolved
 
     async def call_tool(self, tool_call, *args, **kwargs):
-        """Call a tool."""
+        """Call a tool, or tell the model it named one that doesn't exist.
+
+        Models hallucinate tool names. That is a normal turn in the loop, not a
+        crash: we hand the error back as the tool result and let the model try
+        again with a name from the list, exactly as it would recover from a tool
+        that raised.
+        """
 
         name = tool_call.name
         for t in self.tools:
             if t.name == name:
                 return await t.execute(self, tool_call)
 
-        raise Exception(f"Tool {name} not found")
+        available = ", ".join(sorted(t.name for t in self.tools)) or "none"
+        log.warning(
+            f"Agent '{self.slug}': LLM called unknown tool '{name}'. Available: {available}."
+        )
+        return Message(
+            role="tool",
+            tool_call_id=str(tool_call.id),
+            content=[TextContent(
+                text=f"Tool '{name}' not found. Available tools: {available}."
+            )],
+        )
 
     def _validate_args(self, task: Task) -> None:
         """Validate and inject ArgsSchema from task."""

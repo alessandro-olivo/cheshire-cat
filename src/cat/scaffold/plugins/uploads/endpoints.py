@@ -1,7 +1,6 @@
 import os
 import aiofiles
 import mimetypes
-import glob
 from uuid import uuid5, NAMESPACE_URL
 from typing import List
 from pydantic import BaseModel
@@ -25,7 +24,7 @@ class UploadedFileResponse(BaseModel):
     mime_type: str
 
 
-@endpoint.post("/uploads", tags=["Uploads"])
+@endpoint.post("/uploads", tags=["Uploads"], role="authenticated")
 async def upload_file(
     file: UploadFile = File(...),
 ) -> UploadedFileResponse:
@@ -61,23 +60,26 @@ async def upload_file(
     )
 
 
-@endpoint.get("/uploads", tags=["Uploads"])
+@endpoint.get("/uploads", tags=["Uploads"], role="authenticated")
 async def get_uploaded_files() -> List[UploadedFileResponse]:
     """Retrieve list of uploaded file URLs uploaded by a specific user."""
 
     hashed_user_id = str(uuid5(NAMESPACE_URL, str(user.id)))
-    upload_dir = config.UPLOADS_PATH
-    full_path = os.path.join(upload_dir, hashed_user_id)
+    user_dir = os.path.join(config.UPLOADS_PATH, hashed_user_id)
 
-    file_paths = glob.glob(f"{full_path}/**.*", recursive=True)
     uploads = []
-    for path in file_paths:
-        uploads.append(
-            UploadedFileResponse(
-                url=path.replace(config.UPLOADS_PATH, urljoin(config.URL, "uploads")),
-                mime_type=mimetypes.guess_type(path)[0]
+    # every file under the user's folder, at any depth. os.walk rather than a
+    # glob: `**.*` skipped both dotfiles and extensionless files.
+    for folder, _, filenames in os.walk(user_dir):
+        for filename in sorted(filenames):
+            path = os.path.join(folder, filename)
+            relative = os.path.relpath(path, config.UPLOADS_PATH)
+            uploads.append(
+                UploadedFileResponse(
+                    url=urljoin(config.URL, f"uploads/{relative}"),
+                    mime_type=mimetypes.guess_type(path)[0] or "application/octet-stream",
+                )
             )
-        )
     return uploads
 
 
@@ -85,9 +87,17 @@ async def get_uploaded_files() -> List[UploadedFileResponse]:
 async def get_uploaded_file(
     path: str = Path(...),
 ) -> FileResponse:
-    full_path = os.path.join(config.UPLOADS_PATH, path)
+    uploads_root = os.path.abspath(config.UPLOADS_PATH)
+    full_path = os.path.abspath(os.path.join(uploads_root, path))
 
-    if os.path.exists(full_path) and os.path.isfile(full_path):
+    # `path` is user input: `..` segments would otherwise escape the uploads root
+    if not full_path.startswith(uploads_root + os.sep):
+        raise HTTPException(
+            status_code=403,
+            detail="Access forbidden"
+        )
+
+    if os.path.isfile(full_path):
         return FileResponse(full_path)
     else:
         raise HTTPException(

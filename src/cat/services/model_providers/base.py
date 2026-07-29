@@ -79,7 +79,7 @@ class ModelProvider(Service):
         """
         pass
 
-    async def embed(self, model: str, text: str) -> list[float]:
+    async def embed(self, model: str, text: str) -> list[float] | None:
         """
         Embed a single text string.
 
@@ -95,6 +95,9 @@ class ModelProvider(Service):
         list[float] | None
             The embedding vector, or None if not supported.
 
-        Override this in subclasses to implement embedding.
+        Override this in subclasses to implement embedding. The base returns
+        `None` — "this provider does not embed" — and `embedder()` turns that
+        into a clear error. Never return a placeholder vector: a fake embedding
+        silently poisons every similarity search it touches.
         """
-        return [0.0]
+        return None

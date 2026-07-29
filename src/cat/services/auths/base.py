@@ -29,6 +29,12 @@ class Auth(ABC, Service):
     service_type = "auths"
     singleton = True  # one shared, stateless handler, hit on every request
 
+    # Order handlers are tried in, highest first; ties keep registration order.
+    # Without this the winner was whichever handler happened to be discovered
+    # first — invisible to the plugin author and dependent on load order. Raise
+    # it to take precedence over the core handler, lower it to be the fallback.
+    priority: int = 0
+
     jwt = JWTHelper()
 
     def get_admin(self) -> User:

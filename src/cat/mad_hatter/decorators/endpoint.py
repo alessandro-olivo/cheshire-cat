@@ -8,8 +8,27 @@ class Endpoint(APIRouter):
         if hasattr(self, 'plugin_id'):
             plugin = self.plugin_id # will be added by mad hatter
         else:
-            plugin = "unkwown"
+            plugin = "unknown"
         return f"Endpoint(plugin={plugin} routes={self.routes})"
+
+
+# Endpoints are collected off the module namespace, so two decorated functions
+# sharing a name in one module silently lose one route — the second binding
+# shadows the first. We cannot see the loss at collection time (the shadowed
+# router is already unreachable), so we catch it at decoration time instead.
+# Key is (module, function name) → (method, path); a re-import re-registers the
+# identical entry and is fine, a different path under the same name is the bug.
+_DECLARED: dict[tuple[str, str], tuple[str, str]] = {}
+
+
+def forget_module(module_name: str) -> None:
+    """Drop a module's recorded endpoint names, before it is (re)imported.
+
+    Called by the plugin loader on every import so that editing a path and
+    reloading the plugin is not mistaken for a name collision.
+    """
+    for key in [k for k in _DECLARED if k[0] == module_name]:
+        del _DECLARED[key]
 
 
 class EndpointDecorator:
@@ -59,6 +78,18 @@ class EndpointDecorator:
                 from cat.auth.depends import _get_user
                 dependencies.append(_get_user(role=role))
 
+            key = (getattr(func, "__module__", "?"), func.__name__)
+            declared = (method.upper(), full_path)
+            previous = _DECLARED.get(key)
+            if previous is not None and previous != declared:
+                raise ValueError(
+                    f"Two endpoints in {key[0]} are both named '{func.__name__}': "
+                    f"{previous[0]} {previous[1]} and {declared[0]} {declared[1]}. "
+                    "Endpoints are collected by function name, so the second would "
+                    "silently replace the first — give them different names."
+                )
+            _DECLARED[key] = declared
+
             router = Endpoint()
             router.add_api_route(
                 path=full_path,
@@ -99,7 +130,5 @@ class EndpointDecorator:
         ce = Endpoint()
         ce.include_router(returned_router)
         return ce
-
-# TODOV2: endpoints with the same function name collide, even with different paths
 
 endpoint = EndpointDecorator()

@@ -37,6 +37,7 @@ Two invariants hold for every test:
 import os
 import shutil
 from typing import Any, Generator
+from uuid import UUID
 
 import pytest
 from asgi_lifespan import LifespanManager
@@ -188,6 +189,10 @@ def isolated_project(monkeypatch, tmp_path, request):
 # clients so the common case — an authenticated admin — needs no boilerplate.
 ADMIN_HEADERS = {"Authorization": "Bearer meow"}
 
+# Identity `run_agent` uses when a test doesn't pass one. Fixed, so user-scoped
+# writes are readable across calls within a test.
+TEST_USER_ID = UUID("00000000-0000-0000-0000-00000000ca7a")
+
 
 ####################################
 # Main fixture for the FastAPI app #
@@ -229,10 +234,90 @@ def anon_client(app) -> Generator[TestClient, Any, None]:
 # Async version of the client #
 ###############################
 @pytest.fixture(scope="function")
-async def async_client(app):
+async def async_client(booted_app):
     """Async client authenticated as admin by default (see `client`)."""
+    async with AsyncClient(
+        transport=ASGITransport(app=booted_app), base_url="http://test", headers=ADMIN_HEADERS
+    ) as ac:
+        yield ac
+
+
+#############################################
+# In-process agent runs (no server, no HTTP) #
+#############################################
+@pytest.fixture(scope="function")
+async def booted_app(app):
+    """The app with its lifespan run — i.e. a bootstrapped CheshireCat.
+
+    Everything that resolves services (`fake_llm`, `run_agent`) needs the cat
+    bootstrapped; the HTTP clients need it too, and get it through this.
+    """
     async with LifespanManager(app):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test", headers=ADMIN_HEADERS
-        ) as ac:
-            yield ac
+        yield app
+
+
+@pytest.fixture(scope="function")
+async def fake_llm(booted_app):
+    """A programmable LLM, wired in as the installation's default model.
+
+    Script its replies, run an agent, then assert on what the provider received:
+
+        async def test_agent(fake_llm, run_agent):
+            fake_llm.reply_text("hello")
+            result = await run_agent("default", "hi")
+            assert result.messages[-1].text == "hello"
+            assert fake_llm.calls[0].messages[-1].text == "hi"
+
+    See `cat.testing.fake_llm` for the full scripting API.
+    """
+    from cat.ambient.runtime import ccat
+    from cat.testing.fake_llm import FakeModelProvider
+
+    # A singleton service caches its instance on the class; that cache outlives
+    # the test, so clear it before and after to keep runs independent.
+    await FakeModelProvider.refresh()
+
+    ccat().registry.register(FakeModelProvider)
+    provider = await ccat().get("model_providers", FakeModelProvider.slug)
+
+    # make it the configured default, the way a user would in the settings UI
+    core = await ccat().get("config", "core")
+    settings = await core.load_settings()
+    settings.default_llm = f"{FakeModelProvider.slug}:fake"
+    settings.default_embedder = f"{FakeModelProvider.slug}:fake"
+    await core.save_settings(settings)
+
+    yield provider
+
+    await FakeModelProvider.refresh()
+
+
+@pytest.fixture(scope="function")
+async def run_agent(booted_app):
+    """Run an agent in-process: no server, no HTTP, no SSE.
+
+    `await run_agent("todo", "buy milk")` builds the request context (with an
+    admin test user, so ambient `user` resolves inside tools) and dispatches
+    through the same `call_agent` any plugin would use.
+
+    Pass a `Task` instead of a string when you need resources, args or history.
+    """
+    from cat.ambient import call_agent
+    from cat.ambient.context_vars import Ctx, use_ctx
+    from cat.auth.user import User
+    from cat.types import Message, Task, TextContent
+
+    # A stable id, so user-scoped data written by one call is readable by the
+    # next within a test (each test still gets a fresh db).
+    default_user = User(id=TEST_USER_ID, name="test", roles=["admin"])
+
+    async def _run(slug: str, task: "str | Task", user: "User | None" = None):
+        if isinstance(task, str):
+            task = Task(
+                messages=[Message(role="user", content=[TextContent(text=task)])],
+                stream=False,
+            )
+        with use_ctx(Ctx(user=user or default_user)):
+            return await call_agent(slug, task)
+
+    return _run

@@ -132,3 +132,27 @@ class User(BaseModel):
             True if a value was removed, False if the key was unset.
         """
         return await UserStore.delete(self.id, key)
+
+    async def exists(self, key: str) -> bool:
+        """
+        Check whether a user-scoped key is set.
+
+        Distinguishes "stored as None/empty" from "never stored", which
+        `load()` alone cannot.
+
+        Parameters
+        ----------
+        key : str
+            The key to check.
+
+        Returns
+        -------
+        bool
+            True if the key exists, False otherwise.
+
+        Examples
+        --------
+        >>> await user.exists("todos")
+        True
+        """
+        return await UserStore.exists(self.id, key)

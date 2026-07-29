@@ -22,6 +22,7 @@ get wrong (this is why v1's `cat.x → cat.y` cycles do not return).
 from typing import Dict, Type, Union, TYPE_CHECKING
 
 from cat import log
+from cat.errors import ServiceNotFound
 
 if TYPE_CHECKING:
     from cat.looking_glass.cheshire_cat import CheshireCat
@@ -50,7 +51,7 @@ class Registry:
             return self.classes[type][slug]
         except KeyError:
             if raise_error:
-                raise Exception(f"Service of type '{type}' and slug '{slug}' not found")
+                raise ServiceNotFound(type, slug, list(self.classes.get(type, {})))
             return None
 
     async def get(
